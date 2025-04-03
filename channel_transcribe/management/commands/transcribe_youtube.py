@@ -18,15 +18,21 @@ WEB_APP_URL = os.getenv("WEB_APP_URL")
 
 def download_audio(video_url, output_dir):
     ydl_opts = {
-        'cookiefile': os.getenv('YT_COOKIES'),
         'format': 'bestaudio/best',
-        'outtmpl': os.path.join(output_dir, '%(id)s.%(ex2t)s'),
+        'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
             'preferredquality': '192',
         }],
-        'quiet': True
+        'quiet': True,
+        # Bypass geo-restrictions if any
+        'geo_bypass': True,
+        # Add headers to simulate a browser
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36',
+            'Referer': 'https://www.youtube.com'
+        }
     }
     
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
