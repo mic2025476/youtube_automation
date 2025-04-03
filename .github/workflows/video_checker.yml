@@ -47,16 +47,20 @@ jobs:
         # Verify original cookies file
         echo "Original cookies file:"
         ls -la cookies.txt
-        head -n 3 cookies.txt
         
-        # Create enhanced cookies file with CONSENT
-        echo "Creating enhanced cookies file with CONSENT..."
-        echo -e ".youtube.com\tTRUE\t/\tTRUE\t1800000000\tCONSENT\tYES+cb.20230101.00-00-00\n$(cat cookies.txt)" > enhanced_cookies.txt
+        # Create properly formatted enhanced cookies file
+        echo "Creating properly formatted cookies file..."
+        {
+          echo "# Netscape HTTP Cookie File"
+          echo "# This is a generated file. Do not edit."
+          echo ""
+          echo -e ".youtube.com\tTRUE\t/\tTRUE\t1800000000\tCONSENT\tYES+cb.20230101.00-00-00"
+          cat cookies.txt | grep -v '^#'  # Remove existing comments to avoid duplication
+        } > enhanced_cookies.txt
         
         # Verify enhanced cookies
-        echo "Enhanced cookies file:"
-        head -n 3 enhanced_cookies.txt
-        grep -E 'CONSENT|LOGIN_INFO' enhanced_cookies.txt
+        echo "Enhanced cookies file contents (first 5 lines):"
+        head -n 5 enhanced_cookies.txt
         
         # Download with enhanced cookies
         echo "Downloading YouTube video..."
