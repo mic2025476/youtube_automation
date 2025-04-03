@@ -44,37 +44,5 @@ jobs:
         
     - name: Run video checker
       run: |
-        # 1. Install latest tools
-        pip install --upgrade yt-dlp
-        
-        # 2. Create hybrid authentication approach
-        {
-          echo "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-          echo "Referer: https://www.youtube.com/"
-          echo "Cookie: $(grep -E 'LOGIN_INFO' cookies.txt | awk -F'\t' '{print $6 "=" $7}'); CONSENT=YES+cb.20230101.00-00-00"
-        } > youtube_headers.txt
-        
-        # 3. Build header arguments from file
-        headers=()
-        while IFS= read -r line; do
-          headers+=(--add-header "$line")
-        done < youtube_headers.txt
-    
-        # 4. Run with multiple bypass techniques
-        yt-dlp \
-          --sleep-interval 15 \
-          --max-sleep-interval 30 \
-          --force-ipv4 \
-          --no-check-certificates \
-          --limit-rate 500K \
-          --verbose \
-          "${headers[@]}" \
-          --extractor-args youtube:player_client=android \
-          --geo-bypass \
-          --proxy "https://" \
-          https://www.youtube.com/watch?v=InuRAWhZ15Y
-        
-        # 5. Clean up
-        rm -f cookies.txt youtube_headers.txt
         python manage.py new_video_notification_in_slack
     
