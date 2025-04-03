@@ -1,13 +1,18 @@
 import os
 import tempfile
+import time
 import whisper
 import yt_dlp
 from django.core.management.base import BaseCommand
 import requests
 import datetime
 import re
+from webdriver_manager.chrome import ChromeDriverManager
 from glob import glob
 from dotenv import load_dotenv
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 
 # Load environment variables from .env file
 load_dotenv()
@@ -16,8 +21,56 @@ load_dotenv()
 WEB_APP_URL = os.getenv("WEB_APP_URL")
 # OPENAI_API_KEY will be used in the summarize_text function
 
+def get_youtube_cookies(cookie_file='youtube_cookies.txt'):
+    # Configure Selenium to run in headless mode (useful in CI environments)
+    chrome_options = Options()
+    chrome_options.set_capability('goog:loggingPrefs', {'performance': 'ALL'})
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--window-size=1920,1080")
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.121 Safari/537.36")
+    
+    # Initialize the Chrome driver
+    chromedriver_path = os.getenv('CHROMEDRIVER_PATH')
+    service = Service(chromedriver_path)
+    
+    # Initialize the WebDriver
+    service = Service(ChromeDriverManager().install())
+    driver = webdriver.Chrome(service=service, options=chrome_options)
+    # Navigate to YouTube
+    driver.get("https://www.youtube.com")
+    time.sleep(5)  # Wait for the page to load and cookies to be set
+    
+    # Extract cookies from the driver
+    cookies = driver.get_cookies()
+    driver.quit()
+    
+    # Write cookies to file in Netscape format (required by yt-dlp)
+    with open(cookie_file, 'w') as f:
+        f.write("# Netscape HTTP Cookie File\n")
+        for cookie in cookies:
+            domain = cookie.get('domain', '')
+            flag = "TRUE" if domain.startswith('.') else "FALSE"
+            path = cookie.get('path', '/')
+            secure = "TRUE" if cookie.get('secure', False) else "FALSE"
+            expiry = str(cookie.get('expiry', 0))
+            name = cookie.get('name', '')
+            value = cookie.get('value', '')
+            # Write each cookie line (fields separated by tabs)
+            f.write("\t".join([domain, flag, path, secure, expiry, name, value]) + "\n")
+    
+    print(f"Cookies saved to {cookie_file}")
+    return cookie_file
+
 def download_audio(video_url, output_dir):
+    # Get cookies from a real browser session using Selenium
+    cookie_file = get_youtube_cookies()
+    
+    # Define yt-dlp options, now including the cookies
     ydl_opts = {
+        'cookiefile': cookie_file,
         'format': 'bestaudio/best',
         'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
         'postprocessors': [{
@@ -26,22 +79,20 @@ def download_audio(video_url, output_dir):
             'preferredquality': '192',
         }],
         'quiet': True,
-        # Bypass geo-restrictions if any
         'geo_bypass': True,
-        # Add headers to simulate a browser
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36',
             'Referer': 'https://www.youtube.com'
         }
     }
+
     
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        # Extract info first to get duration
+        # First extract info to get video duration
         info_dict = ydl.extract_info(video_url, download=False)
         duration = info_dict.get('duration', None)
         
         if duration:
-            # Convert duration in seconds to HH:MM:SS format
             minutes, seconds = divmod(duration, 60)
             hours, minutes = divmod(minutes, 60)
             duration_str = f"{int(hours):02d}:{int(minutes):02d}:{int(seconds):02d}"
@@ -52,14 +103,12 @@ def download_audio(video_url, output_dir):
         video_id = info_dict.get("id", None)
         filename = os.path.join(output_dir, f"{video_id}.mp3")
         
-        # Verify file exists and print size
         if os.path.exists(filename):
-            file_size = os.path.getsize(filename) / (1024 * 1024)  # Size in MB
+            file_size = os.path.getsize(filename) / (1024 * 1024)  # MB
             print(f"Audio file saved: {filename}")
             print(f"File size: {file_size:.2f} MB")
         
     return filename, duration
-
 def transcribe_audio(audio_path):
     transcript_file = "transcript.txt"
     
