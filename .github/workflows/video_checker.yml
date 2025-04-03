@@ -44,18 +44,33 @@ jobs:
         
     - name: Run video checker
       run: |
-
-        # Verify cookies file exists and has content
-        echo "Checking cookies file..."
+        # Verify original cookies file
+        echo "Original cookies file:"
         ls -la cookies.txt
-        head -n 1 cookies.txt
+        head -n 3 cookies.txt
         
-        # Add debug output for YouTube download
-        echo "Downloading YouTube video with cookies..."
-        yt-dlp --cookies cookies.txt --verbose --force-ipv4 --sleep-interval 5 --max-sleep-interval 10 https://www.youtube.com/watch?v=InuRAWhZ15Y
+        # Create enhanced cookies file with CONSENT
+        echo "Creating enhanced cookies file with CONSENT..."
+        echo -e ".youtube.com\tTRUE\t/\tTRUE\t1800000000\tCONSENT\tYES+cb.20230101.00-00-00\n$(cat cookies.txt)" > enhanced_cookies.txt
         
-        # Clean up cookies file (important for security)
-        rm -f cookies.txt
+        # Verify enhanced cookies
+        echo "Enhanced cookies file:"
+        head -n 3 enhanced_cookies.txt
+        grep -E 'CONSENT|LOGIN_INFO' enhanced_cookies.txt
         
-        # Run your Django command
+        # Download with enhanced cookies
+        echo "Downloading YouTube video..."
+        yt-dlp \
+          --cookies enhanced_cookies.txt \
+          --verbose \
+          --force-ipv4 \
+          --sleep-interval 5 \
+          --max-sleep-interval 10 \
+          --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+          https://www.youtube.com/watch?v=InuRAWhZ15Y
+        
+        # Clean up
+        rm -f cookies.txt enhanced_cookies.txt
+        
+        # Run Django command
         python manage.py new_video_notification_in_slack
