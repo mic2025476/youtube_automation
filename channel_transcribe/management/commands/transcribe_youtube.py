@@ -70,7 +70,7 @@ def download_audio(video_url, output_dir):
     
     # Define yt-dlp options, now including the cookies
     ydl_opts = {
-        'cookiefile': cookie_file,
+        'cookies_from_browser': 'chrome',
         'format': 'bestaudio/best',
         'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
         'postprocessors': [{
