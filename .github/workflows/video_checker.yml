@@ -44,37 +44,30 @@ jobs:
         
     - name: Run video checker
       run: |
-        # Verify original cookies file
-        echo "Original cookies file:"
-        ls -la cookies.txt
-        
-        # Create properly formatted enhanced cookies file
-        echo "Creating properly formatted cookies file..."
+        # 1. Install latest tools
+        pip install --upgrade yt-dlp
+    
+        # 2. Create hybrid authentication approach
         {
-          echo "# Netscape HTTP Cookie File"
-          echo "# This is a generated file. Do not edit."
-          echo ""
-          echo -e ".youtube.com\tTRUE\t/\tTRUE\t1800000000\tCONSENT\tYES+cb.20230101.00-00-00"
-          cat cookies.txt | grep -v '^#'  # Remove existing comments to avoid duplication
-        } > enhanced_cookies.txt
-        
-        # Verify enhanced cookies
-        echo "Enhanced cookies file contents (first 5 lines):"
-        head -n 5 enhanced_cookies.txt
-        
-        # Download with enhanced cookies
-        echo "Downloading YouTube video..."
+          echo "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+          echo "Referer: https://www.youtube.com/"
+          echo "Cookie: $(grep -E 'LOGIN_INFO' cookies.txt | awk -F'\t' '{print $6 \"=\" $7}'); CONSENT=YES+cb.20230101.00-00-00"
+        } > youtube_headers.txt
+    
+        # 3. Run with multiple bypass techniques
         yt-dlp \
-          --cookies enhanced_cookies.txt \
-          --verbose \
+          --sleep-interval 15 \
+          --max-sleep-interval 30 \
           --force-ipv4 \
-          --sleep-interval 5 \
-          --max-sleep-interval 10 \
-          --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+          --no-check-certificates \
+          --limit-rate 500K \
+          --verbose \
+          --add-header @youtube_headers.txt \
+          --extractor-args youtube:player_client=android \
+          --geo-bypass \
+          --proxy "https://" \
           https://www.youtube.com/watch?v=InuRAWhZ15Y
-        
-        # Clean up
-        rm -f cookies.txt enhanced_cookies.txt
-        
-        # Run Django command
+    
+        # 4. Clean up
+        rm -f cookies.txt youtube_headers.txt
         python manage.py new_video_notification_in_slack
