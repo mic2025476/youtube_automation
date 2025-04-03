@@ -45,8 +45,17 @@ jobs:
     - name: Run video checker
       run: |
 
-        # Download YouTube video using cookies from secret
-        yt-dlp --cookies cookies.txt https://www.youtube.com/watch?v=InuRAWhZ15Y
+        # Verify cookies file exists and has content
+        echo "Checking cookies file..."
+        ls -la cookies.txt
+        head -n 1 cookies.txt
         
-        # Then run your Django command
+        # Add debug output for YouTube download
+        echo "Downloading YouTube video with cookies..."
+        yt-dlp --cookies cookies.txt --verbose --force-ipv4 --sleep-interval 5 --max-sleep-interval 10 https://www.youtube.com/watch?v=InuRAWhZ15Y
+        
+        # Clean up cookies file (important for security)
+        rm -f cookies.txt
+        
+        # Run your Django command
         python manage.py new_video_notification_in_slack
