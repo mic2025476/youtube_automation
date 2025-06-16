@@ -31,7 +31,7 @@ jobs:
       - name: Fetch & Process
         run: |
           # get the latest video ID
-          VIDEO_ID=$(python manage.py latest_video --quiet)
+          VIDEO_ID=$(python manage.py latest_video)
           echo "Latest video: $VIDEO_ID"
           # now run your processing command
           python manage.py process_video --video-id "$VIDEO_ID"
