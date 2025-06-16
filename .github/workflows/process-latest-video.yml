@@ -34,7 +34,7 @@ jobs:
           VIDEO_ID=$(python manage.py latest_video)
           echo "Latest video: $VIDEO_ID"
           # now run your processing command
-          python manage.py process_video --video-id "$VIDEO_ID"
+          python manage.py transcribe_youtube --video-id "$VIDEO_ID"
         env:
           WEB_APP_URL: ${{ secrets.WEB_APP_URL }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
