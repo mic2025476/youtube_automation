@@ -1,18 +1,14 @@
 import os
 import tempfile
-import time
 import whisper
 import yt_dlp
 from django.core.management.base import BaseCommand
 import requests
 import datetime
 import re
-from webdriver_manager.chrome import ChromeDriverManager
-from glob import glob
+import openai
+import os
 from dotenv import load_dotenv
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
 
 # Load environment variables from .env file
 load_dotenv()
@@ -21,56 +17,9 @@ load_dotenv()
 WEB_APP_URL = os.getenv("WEB_APP_URL")
 # OPENAI_API_KEY will be used in the summarize_text function
 
-def get_youtube_cookies(cookie_file='youtube_cookies.txt'):
-    # Configure Selenium to run in headless mode (useful in CI environments)
-    chrome_options = Options()
-    chrome_options.set_capability('goog:loggingPrefs', {'performance': 'ALL'})
-    chrome_options.add_argument("--headless")
-    chrome_options.add_argument("--window-size=1920,1080")
-    chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.121 Safari/537.36")
-    
-    # Initialize the Chrome driver
-    chromedriver_path = os.getenv('CHROMEDRIVER_PATH')
-    service = Service(chromedriver_path)
-    
-    # Initialize the WebDriver
-    service = Service(ChromeDriverManager().install())
-    driver = webdriver.Chrome(service=service, options=chrome_options)
-    # Navigate to YouTube
-    driver.get("https://www.youtube.com")
-    time.sleep(5)  # Wait for the page to load and cookies to be set
-    
-    # Extract cookies from the driver
-    cookies = driver.get_cookies()
-    driver.quit()
-    
-    # Write cookies to file in Netscape format (required by yt-dlp)
-    with open(cookie_file, 'w') as f:
-        f.write("# Netscape HTTP Cookie File\n")
-        for cookie in cookies:
-            domain = cookie.get('domain', '')
-            flag = "TRUE" if domain.startswith('.') else "FALSE"
-            path = cookie.get('path', '/')
-            secure = "TRUE" if cookie.get('secure', False) else "FALSE"
-            expiry = str(cookie.get('expiry', 0))
-            name = cookie.get('name', '')
-            value = cookie.get('value', '')
-            # Write each cookie line (fields separated by tabs)
-            f.write("\t".join([domain, flag, path, secure, expiry, name, value]) + "\n")
-    
-    print(f"Cookies saved to {cookie_file}")
-    return cookie_file
-
 def download_audio(video_url, output_dir):
-    # Get cookies from a real browser session using Selenium
-    cookie_file = get_youtube_cookies()
-    
-    # Define yt-dlp options, now including the cookies
     ydl_opts = {
-        'cookies_from_browser': 'chrome',
+        #'cookiefile': os.getenv('YT_COOKIES'),
         'format': 'bestaudio/best',
         'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
         'postprocessors': [{
@@ -78,21 +27,16 @@ def download_audio(video_url, output_dir):
             'preferredcodec': 'mp3',
             'preferredquality': '192',
         }],
-        'quiet': True,
-        'geo_bypass': True,
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36',
-            'Referer': 'https://www.youtube.com'
-        }
+        'quiet': True
     }
-
     
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        # First extract info to get video duration
+        # Extract info first to get duration
         info_dict = ydl.extract_info(video_url, download=False)
         duration = info_dict.get('duration', None)
         
         if duration:
+            # Convert duration in seconds to HH:MM:SS format
             minutes, seconds = divmod(duration, 60)
             hours, minutes = divmod(minutes, 60)
             duration_str = f"{int(hours):02d}:{int(minutes):02d}:{int(seconds):02d}"
@@ -103,12 +47,14 @@ def download_audio(video_url, output_dir):
         video_id = info_dict.get("id", None)
         filename = os.path.join(output_dir, f"{video_id}.mp3")
         
+        # Verify file exists and print size
         if os.path.exists(filename):
-            file_size = os.path.getsize(filename) / (1024 * 1024)  # MB
+            file_size = os.path.getsize(filename) / (1024 * 1024)  # Size in MB
             print(f"Audio file saved: {filename}")
             print(f"File size: {file_size:.2f} MB")
         
     return filename, duration
+
 def transcribe_audio(audio_path):
     transcript_file = "transcript.txt"
     
@@ -137,52 +83,73 @@ def transcribe_audio(audio_path):
     
     return result["segments"]
 
-def summarize_text(segments, total_duration):
-    import google.generativeai as genai
-    
-    # Configure Gemini (set your API key in environment variables)
-    genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-    # Initialize the model
-    model = genai.GenerativeModel('gemini-1.5-pro-latest')
-    
-    # Combine segments into a single text with timestamp markers
-    text_with_timestamps = "\n".join(
-        f"[{seg['start']:.1f}-{seg['end']:.1f}] {seg['text']}"
-        for seg in segments
-    )
-    
-    # Calculate chunk size (5 minute chunks)
-    chunk_size = 300  # seconds
-    num_chunks = max(1, int(total_duration // chunk_size))
-    
-    prompt = f"""
-    Analyze this timestamped transcript and create {num_chunks} summary chunks 
-    covering the entire {total_duration} second video. Each chunk should be about 5 minutes.
-    
-    Requirements:
-    1. Create exactly {num_chunks} chunks
-    2. Each chunk must cover ~{chunk_size} seconds of video
-    3. Include 5-6 bullet points and I need information such that I dont need to go and understand video
-    4. Maintain original timestamps
-    
-    Output format for each chunk:
-    Chunk [N] (MM:SS-MM:SS) - [Title]
-    • Market insight 1
-    • Market insight 2
-    Link: [video_url]?t=[SS]
-    
-    Transcript:
-    {text_with_timestamps}
-    """
-    
-    try:
-        response = model.generate_content(prompt)
-        return response.text
-    except Exception as e:
-        print(f"Gemini API error: {str(e)}")
-        return None
+def summarize_text(segments, total_duration, video_url=None):
+    import openai, os, math
+
+    openai.api_key = os.getenv("OPENAI_API_KEY")
+
+    # chunk size in seconds (300 s = 5 min)
+    chunk_size = 300
+    num_chunks = max(1, math.ceil(total_duration / chunk_size))
+
+    def format_prompt(slice_segments, chunk_idx):
+        # Reuse your exact multi-chunk prompt, just change the transcript block.
+        transcript_block = "\n".join(
+            f"[{seg['start']:.1f}-{seg['end']:.1f}] {seg['text']}"
+            for seg in slice_segments
+        )
+
+        return f"""
+Analyze this timestamped transcript and create {num_chunks} summary chunks 
+covering the entire {total_duration} second video. Each chunk should be about 5 minutes.
+
+Requirements:
+1. Create exactly {num_chunks} chunks
+2. Each chunk must cover ~{chunk_size} seconds of video
+3. Include 5-6 bullet points and I need information such that I dont need to go and understand video
+4. Maintain original timestamps
+
+Output format for each chunk:
+Chunk [N] (MM:SS-MM:SS) - [Title]
+• Market insight 1
+• Market insight 2
+Link: [video_url]?t=[SS]
+
+Transcript:
+{transcript_block}
+"""
+
+    all_chunks = []
+    for idx in range(num_chunks):
+        start_sec = idx * chunk_size
+        end_sec   = min(total_duration, (idx + 1) * chunk_size)
+
+        # pick only segments overlapping this window
+        slice_segments = [
+            seg for seg in segments
+            if seg["start"] < end_sec and seg["end"] > start_sec
+        ]
+
+        prompt = format_prompt(slice_segments, idx+1)
+        resp = openai.ChatCompletion.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You summarize timestamped video transcripts into structured chunks."},
+                {"role": "user",   "content": prompt}
+            ],
+            temperature=0.3,
+            max_tokens=2000
+        )
+
+        all_chunks.append(resp.choices[0].message.content)
+        print(f'all_chunks {all_chunks}')
+        break
+
+    # join all chunk-outputs together
+    return "\n\n".join(all_chunks)
 
 def update_google_sheet(summary_text, video_link, web_app_url):
+    summary_text = summary_text.replace("–", "-")
     def time_to_seconds(time_str):
         """Convert time in MM:SS format to seconds"""
         try:
@@ -286,6 +253,9 @@ def update_google_sheet(summary_text, video_link, web_app_url):
     except Exception as e:
         print(f"Failed to send data to Google Sheets: {str(e)}")
 
+AUDIO_DIR = os.getenv("AUDIO_DIR", "audio_cache")
+os.makedirs(AUDIO_DIR, exist_ok=True)
+
 class Command(BaseCommand):
     help = "Process YouTube video with accurate timestamped chunks"
 
@@ -314,27 +284,37 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         video_id = options['video_id']
         VIDEO_URL = f"https://www.youtube.com/watch?v={video_id}"
-        
-        self.clear_previous_files()
-        with tempfile.TemporaryDirectory() as temp_dir:
-            print("Downloading audio...")
-            audio_file, duration = download_audio(VIDEO_URL, temp_dir)
-            
-            print("Transcribing with timestamps...")
-            segments = transcribe_audio(audio_file)
-            
-            summary_file = "summary.txt"
+        self.stdout.write(f'Processing video: {video_id}')
 
-            if os.path.exists(summary_file) and os.path.getsize(summary_file) > 0:
-                print("Summary file exists. Loading from summary.txt...")
-                with open(summary_file, "r", encoding="utf-8") as f:
-                    summary = f.read()
-            else:
-                print("Generating summary chunks...")
-                print(f'duration {duration}')
-                summary = summarize_text(segments, 3724)
-                with open(summary_file, "w", encoding="utf-8") as f:
-                    f.write(summary)
-            
-            print("Updating Google Sheet...")
-            update_google_sheet(summary, VIDEO_URL, WEB_APP_URL)
+        # Path where we expect the .mp3 to live
+        audio_path = os.path.join(AUDIO_DIR, f"{video_id}.mp3")
+
+        if os.path.exists(audio_path):
+            # Audio is already downloaded—just probe its duration
+            self.stdout.write(f"Found existing audio: {audio_path}")
+            # Optionally you can re-extract duration from the file, but
+            # simplest is to store metadata next to it or re-run yt_dlp in no-download mode:
+            with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
+                info = ydl.extract_info(VIDEO_URL, download=False)
+                duration = info.get('duration')
+        else:
+            # First time: download into that persistent folder
+            self.stdout.write("Downloading audio…")
+            audio_path, duration = download_audio(VIDEO_URL, AUDIO_DIR)
+
+        # Now you have audio_path and duration, whether cached or fresh.
+        self.stdout.write(f"Duration: {duration}s")
+
+        # Transcribe & summarize exactly as before:
+        self.stdout.write("Transcribing with Whisper…")
+        segments = transcribe_audio(audio_path)
+
+        self.stdout.write("Generating summary chunks…")
+        summary = summarize_text(segments, duration, video_url=VIDEO_URL)
+
+        # Save + upload…
+        with open("summary.txt", "w", encoding="utf-8") as f:
+            f.write(summary)
+        self.stdout.write("Updating Google Sheet…")
+        #update_google_sheet(summary, VIDEO_URL, WEB_APP_URL)
+        self.stdout.write("Done.")
