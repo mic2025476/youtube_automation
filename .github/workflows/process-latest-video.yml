@@ -31,7 +31,7 @@ jobs:
       - name: Fetch & Process
         run: |
           # get the latest video ID
-          VIDEO_ID=$(python manage.py latest_video)
+          VIDEO_ID=$(python manage.py latest_video --id-only)
           echo "Latest video: $VIDEO_ID"
           # now run your processing command
           python manage.py transcribe_youtube --video-id "$VIDEO_ID"
