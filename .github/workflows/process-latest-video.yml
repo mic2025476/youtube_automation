@@ -13,7 +13,11 @@ jobs:
     steps:
       # 1️⃣ Check out your code
       - uses: actions/checkout@v4
-
+      # write out cookies.txt from the secret
+      - name: Set up YouTube cookies
+        run: |
+          echo "${{ secrets.YT_COOKIES }}" > cookies.txt
+        # no need for env here
       # 2️⃣ Set up Python
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -36,6 +40,7 @@ jobs:
           # now run your processing command
           python manage.py transcribe_youtube --video-id "$VIDEO_ID"
         env:
+          YT_COOKIES_PATH: cookies.txt
           WEB_APP_URL: ${{ secrets.WEB_APP_URL }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           VIDEO_URL: ${{ secrets.VIDEO_URL }}

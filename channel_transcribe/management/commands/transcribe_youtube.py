@@ -12,14 +12,14 @@ from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
-
+YT_COOKIES_PATH = os.getenv("YT_COOKIES_PATH", "cookies.txt")
 # Retrieve sensitive data from environment variables.
 WEB_APP_URL = os.getenv("WEB_APP_URL")
 # OPENAI_API_KEY will be used in the summarize_text function
 
 def download_audio(video_url, output_dir):
     ydl_opts = {
-        #'cookiefile': os.getenv('YT_COOKIES'),
+        'cookiefile': os.getenv('YT_COOKIES_PATH', 'cookies.txt'),
         'format': 'bestaudio/best',
         'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
         'postprocessors': [{
