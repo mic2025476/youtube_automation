@@ -2,8 +2,9 @@ name: Fetch & Process Latest YouTube Video
 
 # run every hour (you can tweak the cron)
 on:
-  schedule:
-    - cron:  '0 * * * *'
+  push:
+    branches:
+      - main         # or whatever branch you commit to
   workflow_dispatch:
 
 jobs:
