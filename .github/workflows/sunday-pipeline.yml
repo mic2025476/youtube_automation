@@ -35,11 +35,17 @@ jobs:
           pip install -r requirements.txt
 
       - name: Recreate cookies.txt from secret
+        env:
+                YT_COOKIES_B64: ${{ secrets.YT_COOKIES }}
         run: |
-          printf '%s' "${{ secrets.YT_COOKIES }}" > cookies.txt
-          # Sanity check
-          head -1 cookies.txt
-          wc -l cookies.txt
+                echo "$YT_COOKIES_B64" | base64 -d > cookies.txt
+                # Sanity check — these lines are safe to print
+                echo "First line of cookies.txt:"
+                head -1 cookies.txt
+                echo "Total lines:"
+                wc -l cookies.txt
+                echo "File size:"
+                wc -c cookies.txt
 
       - name: Run pipeline
         env:
