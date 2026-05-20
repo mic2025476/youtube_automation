@@ -1,0 +1,72 @@
+name: Sunday YouTube Pipeline
+
+on:
+  push:
+    branches:
+      - main  # change to master if that's your default
+  workflow_dispatch:
+  schedule:
+    - cron: "0 21 * * 0"
+
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90  # Whisper on CPU is slow; 96-min video ~30 min
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install system deps (ffmpeg for Whisper/yt-dlp)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Install Python deps
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Recreate cookies.txt from secret
+        run: |
+          printf '%s' "${{ secrets.YT_COOKIES }}" > cookies.txt
+          # Sanity check
+          head -1 cookies.txt
+          wc -l cookies.txt
+
+      - name: Run pipeline
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_MODEL: llama-3.3-70b-versatile
+          WEB_APP_URL: ${{ secrets.WEB_APP_URL }}
+          G_SCRIPT_URL: ${{ secrets.G_SCRIPT_URL }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL: ${{ secrets.SLACK_CHANNEL }}
+          YT_COOKIES_PATH: cookies.txt
+          YT_CHANNEL_ID: UCAHr-sT0AjrD3sBwr1eRUNg
+          YT_CHANNEL_HANDLE: https://www.youtube.com/@MarkMeldrum/videos
+          AUDIO_DIR: audio_cache
+          WHISPER_MODEL: base
+          # Django needs a SECRET_KEY for manage.py to load settings
+          DJANGO_SETTINGS_MODULE: ${{ vars.DJANGO_SETTINGS_MODULE }}
+        run: |
+          python manage.py check_youtube
+
+      - name: Upload artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-debug-${{ github.run_id }}
+          path: |
+            transcript_*.txt
+            summary_*.txt
+            cron.log
+          retention-days: 7
+          if-no-files-found: ignore

@@ -24,25 +24,97 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR(f"Error: {str(e)}"))
 
     def get_latest_video(self):
-        """Gets latest non-live video from a channel's 'Videos' tab."""
-        channel_id = 'UCAHr-sT0AjrD3sBwr1eRUNg'  # Example channel ID
-        uploads_playlist_id = f"UU{channel_id[2:]}"  # Convert channel ID to uploads playlist ID
-        
-        self.stdout.write(f"Using uploads playlist ID: {uploads_playlist_id}")
-        feed_url = f"https://www.youtube.com/feeds/videos.xml?playlist_id={uploads_playlist_id}"
-        feed = feedparser.parse(feed_url)
-        
-        if not feed.entries:
-            raise ValueError("No videos found in RSS feed")
-        
-        latest = feed.entries[0]
-        return {
-            'id': latest.yt_videoid,
-            'title': latest.title,
-            'link': latest.link,
-            'published': latest.published
+        channel_id = "UCAHr-sT0AjrD3sBwr1eRUNg"
+        uploads_playlist_id = f"UU{channel_id[2:]}"
+
+        feed_urls = [
+            f"https://www.youtube.com/feeds/videos.xml?playlist_id={uploads_playlist_id}",
+            f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}",
+        ]
+
+        headers = {
+            "User-Agent": "Mozilla/5.0",
+            "Accept": "application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8",
         }
 
+        # 1) Try RSS first
+        for feed_url in feed_urls:
+            try:
+                self.stdout.write(f"Trying RSS feed: {feed_url}")
+
+                response = requests.get(feed_url, headers=headers, timeout=20)
+
+                self.stdout.write(f"RSS HTTP status: {response.status_code}")
+                self.stdout.write(f"RSS content type: {response.headers.get('Content-Type')}")
+
+                if response.ok and "<feed" in response.text[:1000]:
+                    feed = feedparser.parse(response.content)
+
+                    if feed.entries:
+                        latest = feed.entries[0]
+
+                        video_id = latest.get("yt_videoid")
+
+                        if not video_id:
+                            link = latest.get("link", "")
+                            match = re.search(r"v=([^&]+)", link)
+                            video_id = match.group(1) if match else None
+
+                        if video_id:
+                            return {
+                                "id": video_id,
+                                "title": latest.get("title"),
+                                "link": latest.get("link") or f"https://www.youtube.com/watch?v={video_id}",
+                                "published": latest.get("published"),
+                            }
+
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"RSS did not return valid feed. Status={response.status_code}"
+                    )
+                )
+
+            except Exception as e:
+                self.stdout.write(self.style.WARNING(f"RSS failed: {str(e)}"))
+
+        # 2) Fallback to yt-dlp
+        self.stdout.write(self.style.WARNING("RSS failed. Trying yt-dlp fallback..."))
+
+        import yt_dlp
+
+        channel_url = "https://www.youtube.com/@MarkMeldrum/videos"
+
+        ydl_opts = {
+            "quiet": True,
+            "extract_flat": True,
+            "playlistend": 1,
+            "skip_download": True,
+        }
+
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(channel_url, download=False)
+
+            entries = info.get("entries", [])
+
+            if not entries:
+                raise ValueError("yt-dlp found no videos")
+
+            latest = entries[0]
+            video_id = latest.get("id")
+
+            if not video_id:
+                raise ValueError("yt-dlp found latest video but no video ID")
+
+            return {
+                "id": video_id,
+                "title": latest.get("title") or "Untitled video",
+                "link": f"https://www.youtube.com/watch?v={video_id}",
+                "published": latest.get("upload_date"),
+            }
+
+        except Exception as e:
+            raise ValueError(f"Both RSS and yt-dlp failed. Last error: {str(e)}")
     def read_last_video(self):
         """Retrieves the last processed video ID from the Google Apps Script persistent store."""
         if not G_SCRIPT_URL:
@@ -71,8 +143,8 @@ class Command(BaseCommand):
         try:
             message = (
                 f"New video uploaded: *{video_info['title']}*\n"
-                f"Link: {video_info['link']}*\n"
-                f"Summary link: https://docs.google.com/spreadsheets/d/1zrSaXieCV8GDmMNqsWQT1VR3Q-LKAjdnPo_EfJy3DFY/edit?gid=0#gid=0"
+                f"Link: {video_info['link']}\n"
+                f"Summary link: https://docs.google.com/spreadsheets/d/1abxJkam3ySfQKtOznEGyIrHKdG_2BBjzuOK1UV4CkaI/edit?gid=550384304#gid=550384304"
             )
             print(f"\n📢 Sending Slack Notification")
             print(f"Message:\n{message}")
