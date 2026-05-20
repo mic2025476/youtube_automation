@@ -171,9 +171,9 @@ class Command(BaseCommand):
         self.stdout.write(f"Latest:  {latest['id']} ({latest['title']})")
         self.stdout.write(f"Last:    {last_id or 'None'}")
 
-        if latest["id"] == last_id:
-            self.stdout.write("No new video. Nothing to do.")
-            return
+        #if latest["id"] == last_id:
+        #    self.stdout.write("No new video. Nothing to do.")
+        #    return
 
         self.stdout.write(self.style.SUCCESS("New video found — running transcribe pipeline…"))
 
