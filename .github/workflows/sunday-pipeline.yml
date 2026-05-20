@@ -61,7 +61,7 @@ jobs:
           AUDIO_DIR: audio_cache
           WHISPER_MODEL: base
           # Django needs a SECRET_KEY for manage.py to load settings
-          DJANGO_SETTINGS_MODULE: ${{ vars.DJANGO_SETTINGS_MODULE }}
+          DJANGO_SETTINGS_MODULE: youtube_automation.settings
         run: |
           python manage.py check_youtube
 
