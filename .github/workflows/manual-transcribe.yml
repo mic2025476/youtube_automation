@@ -1,0 +1,73 @@
+name: Manual Transcribe (test specific video)
+
+on:
+  # Only runs when you click "Run workflow" in the Actions tab
+  workflow_dispatch:
+    inputs:
+      video_id:
+        description: "YouTube video ID to process (e.g. 6e-FuZncUKw)"
+        required: true
+        type: string
+
+jobs:
+  transcribe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Install Python deps
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Recreate cookies.txt from secret
+        env:
+          YT_COOKIES_B64: ${{ secrets.YT_COOKIES }}
+        run: |
+          echo "$YT_COOKIES_B64" | base64 -d > cookies.txt
+          echo "First line of cookies.txt:"
+          head -1 cookies.txt
+          echo "Total lines:"
+          wc -l cookies.txt
+          echo "File size:"
+          wc -c cookies.txt
+
+      - name: Run transcribe for the given video
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_MODEL: llama-3.3-70b-versatile
+          WEB_APP_URL: ${{ secrets.WEB_APP_URL }}
+          G_SCRIPT_URL: ${{ secrets.G_SCRIPT_URL }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL: ${{ secrets.SLACK_CHANNEL }}
+          YT_COOKIES_PATH: cookies.txt
+          AUDIO_DIR: audio_cache
+          WHISPER_MODEL: base
+          DJANGO_SETTINGS_MODULE: youtube_automation.settings
+        run: |
+          python manage.py transcribe_youtube --video-id=${{ inputs.video_id }}
+
+      - name: Upload debug artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: transcribe-debug-${{ github.run_id }}
+          path: |
+            transcript_*.txt
+            summary_*.txt
+          retention-days: 7
+          if-no-files-found: ignore
